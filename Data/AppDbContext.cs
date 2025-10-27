@@ -1,7 +1,7 @@
-using EcommerceAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using Parcial2_Ecommerce.Models;
 
-namespace EcommerceAPI.Data
+namespace Parcial2_Ecommerce.Data
 {
     public class AppDbContext : DbContext
     {
