@@ -11,7 +11,7 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Controllers + JSON (ignorar ciclos para evitar bucles de navegación)
+// Controllers + JSON (ignorar ciclos y nulos)
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
     {
@@ -19,36 +19,32 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
-// Swagger con esquema Bearer
+// Swagger con esquema Bearer (siempre encendido)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Parcial2 Ecommerce API", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT con esquema Bearer. Ejemplo: **Bearer {tu_token_jwt}**",
+        Description = "JWT con esquema Bearer. Ej: **Bearer {tu_token}**",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT"
     });
-
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
+            new OpenApiSecurityScheme {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
             },
             Array.Empty<string>()
         }
     });
 });
 
-// DbContext (Azure SQL + reintentos)
+// DbContext (SQL Server + reintentos transitorios)
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
@@ -62,7 +58,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         var key = builder.Configuration["Jwt:Key"] ?? "";
         if (key.Length < 32)
-            throw new InvalidOperationException("Jwt:Key debe tener al menos 32 caracteres. Revisa appsettings(.Development).json");
+            throw new InvalidOperationException("Jwt:Key debe tener al menos 32 caracteres.");
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -76,13 +72,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-// CORS (para Flutter Web / App)
+// CORS (para Flutter Web / clientes)
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy => policy
-        .AllowAnyOrigin()
-        .AllowAnyMethod()
-        .AllowAnyHeader());
+    options.AddPolicy("AllowAll", p =>
+        p.AllowAnyOrigin()
+         .AllowAnyMethod()
+         .AllowAnyHeader());
 });
 
 // Servicios de la app
@@ -91,12 +87,12 @@ builder.Services.AddScoped<OrderService>();
 
 var app = builder.Build();
 
-// Middlewares
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// ✅ Swagger siempre (también en producción/Azure)
+app.UseSwagger();
+app.UseSwaggerUI();
+
+// ✅ Redirige raíz "/" a Swagger
+app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.UseCors("AllowAll");
 
