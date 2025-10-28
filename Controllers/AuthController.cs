@@ -1,10 +1,9 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Parcial2_Ecommerce.Data;
 using Parcial2_Ecommerce.Models;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
+using Parcial2_Ecommerce.Models.Auth;
+using Parcial2_Ecommerce.Services;
 
 namespace Parcial2_Ecommerce.Controllers
 {
@@ -13,54 +12,53 @@ namespace Parcial2_Ecommerce.Controllers
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IConfiguration _config;
+        private readonly TokenService _tokenService;
 
-        public AuthController(AppDbContext context, IConfiguration config)
+        public AuthController(AppDbContext context, TokenService tokenService)
         {
             _context = context;
-            _config = config;
+            _tokenService = tokenService;
         }
 
+        // Registro: público y NO devuelve token
+        [AllowAnonymous]
         [HttpPost("register")]
-        public IActionResult Register(User user)
+        public IActionResult Register([FromBody] RegisterRequest req)
         {
-            if (_context.Users.Any(u => u.Email == user.Email))
+            if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+                return BadRequest("Email y password son obligatorios.");
+
+            if (_context.Users.Any(u => u.Email == req.Email))
                 return BadRequest("El correo ya está registrado.");
+
+            var user = new User
+            {
+                Name = req.Name,
+                Email = req.Email,
+                Password = req.Password,
+                Role = string.IsNullOrWhiteSpace(req.Role) ? "Cliente" : req.Role
+            };
 
             _context.Users.Add(user);
             _context.SaveChanges();
-            return Ok("Usuario registrado correctamente.");
+
+            // Ya NO devolvemos token aquí
+            return Ok(new { message = "Usuario registrado correctamente." });
         }
 
+        // Login: público y devuelve token
+        [AllowAnonymous]
         [HttpPost("login")]
-        public IActionResult Login([FromBody] User login)
+        public IActionResult Login([FromBody] LoginRequest req)
         {
-            var user = _context.Users.FirstOrDefault(u => u.Email == login.Email && u.Password == login.Password);
+            if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+                return BadRequest("Email y password son obligatorios.");
+
+            var user = _context.Users.FirstOrDefault(u => u.Email == req.Email && u.Password == req.Password);
             if (user == null) return Unauthorized("Credenciales inválidas.");
 
-            var token = GenerateJwtToken(user);
-            return Ok(new { token, user.Role });
-        }
-
-        private string GenerateJwtToken(User user)
-        {
-            var claims = new[]
-            {
-                new Claim(JwtRegisteredClaimNames.Sub, user.Email),
-                new Claim("role", user.Role)
-            };
-
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-            var token = new JwtSecurityToken(
-                issuer: _config["Jwt:Issuer"],
-                audience: _config["Jwt:Audience"],
-                claims: claims,
-                expires: DateTime.Now.AddHours(3),
-                signingCredentials: creds);
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            var token = _tokenService.GenerateToken(user);
+            return Ok(new { token, role = user.Role });
         }
     }
 }

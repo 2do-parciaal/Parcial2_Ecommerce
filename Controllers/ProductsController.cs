@@ -1,6 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Parcial2_Ecommerce.Data;
 using Parcial2_Ecommerce.Models;
+using Parcial2_Ecommerce.Models.Products;
+using System.Security.Claims;
 
 namespace Parcial2_Ecommerce.Controllers
 {
@@ -11,49 +15,87 @@ namespace Parcial2_Ecommerce.Controllers
         private readonly AppDbContext _context;
         public ProductsController(AppDbContext context) => _context = context;
 
+        int CurrentUserId(ClaimsPrincipal user)
+            => int.Parse(user.Claims.First(c => c.Type == "userId").Value);
+
+        // Público: listar/ver
         [HttpGet]
-        public IActionResult GetAll() => Ok(_context.Products.ToList());
+        public async Task<IActionResult> GetAll()
+            => Ok(await _context.Products.Include(p => p.Company).ToListAsync());
 
-        [HttpGet("{id}")]
-        public IActionResult Get(int id)
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> Get(int id)
         {
-            var product = _context.Products.Find(id);
-            if (product == null) return NotFound();
-            return Ok(product);
+            var p = await _context.Products.Include(x => x.Company).FirstOrDefaultAsync(x => x.Id == id);
+            return p is null ? NotFound() : Ok(p);
         }
 
+        // Solo Empresa crea productos de su propia empresa
+        [Authorize(Roles = "Empresa")]
         [HttpPost]
-        public IActionResult Create(Product product)
+        public async Task<IActionResult> Create([FromBody] ProductCreateRequest req)
         {
-            _context.Products.Add(product);
-            _context.SaveChanges();
-            return Ok(product);
+            var company = await _context.Companies.FindAsync(req.CompanyId);
+            if (company == null) return BadRequest("La empresa (companyId) no existe.");
+
+            var ownerId = CurrentUserId(User);
+            if (company.OwnerUserId != ownerId)
+                return Forbid("Solo puedes crear productos de tu propia empresa.");
+
+            var p = new Product
+            {
+                Name = req.Name,
+                Description = req.Description,
+                Price = req.Price,
+                Stock = req.Stock,
+                CompanyId = req.CompanyId
+            };
+
+            _context.Products.Add(p);
+            await _context.SaveChangesAsync();
+            return CreatedAtAction(nameof(Get), new { id = p.Id }, p);
         }
 
-        [HttpPut("{id}")]
-        public IActionResult Update(int id, Product updated)
+        // Solo Empresa puede editar/eliminar sus productos
+        [Authorize(Roles = "Empresa")]
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> Update(int id, [FromBody] ProductCreateRequest req)
         {
-            var product = _context.Products.Find(id);
-            if (product == null) return NotFound();
+            var p = await _context.Products.FindAsync(id);
+            if (p == null) return NotFound();
 
-            product.Name = updated.Name;
-            product.Description = updated.Description;
-            product.Price = updated.Price;
-            product.Stock = updated.Stock;
-            product.CompanyId = updated.CompanyId;
+            var company = await _context.Companies.FindAsync(req.CompanyId);
+            if (company == null) return BadRequest("La empresa (companyId) no existe.");
 
-            _context.SaveChanges();
-            return Ok(product);
+            var ownerId = CurrentUserId(User);
+            if (company.OwnerUserId != ownerId || p.CompanyId != company.Id)
+                return Forbid("Solo puedes modificar productos de tu empresa.");
+
+            p.Name = req.Name;
+            p.Description = req.Description;
+            p.Price = req.Price;
+            p.Stock = req.Stock;
+            p.CompanyId = req.CompanyId;
+
+            await _context.SaveChangesAsync();
+            return Ok(p);
         }
 
-        [HttpDelete("{id}")]
-        public IActionResult Delete(int id)
+        [Authorize(Roles = "Empresa")]
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> Delete(int id)
         {
-            var product = _context.Products.Find(id);
-            if (product == null) return NotFound();
-            _context.Products.Remove(product);
-            _context.SaveChanges();
-            return Ok("Producto eliminado.");
+            var p = await _context.Products.FindAsync(id);
+            if (p == null) return NotFound();
+
+            var company = await _context.Companies.FindAsync(p.CompanyId);
+            var ownerId = CurrentUserId(User);
+            if (company == null || company.OwnerUserId != ownerId)
+                return Forbid("Solo puedes eliminar productos de tu empresa.");
+
+            _context.Products.Remove(p);
+            await _context.SaveChangesAsync();
+            return NoContent();
         }
     }
 }
