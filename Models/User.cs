@@ -7,5 +7,9 @@ namespace Parcial2_Ecommerce.Models
         public string Email { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
         public string Role { get; set; } = "Cliente"; // "Cliente" o "Empresa"
+
+        // 🔹 Solo para usuarios tipo "Empresa"
+        public int? CompanyId { get; set; }
+        public Company? Company { get; set; }
     }
 }

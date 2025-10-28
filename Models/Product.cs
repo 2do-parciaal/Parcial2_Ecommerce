@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Parcial2_Ecommerce.Models
 {
     public class Product
@@ -9,6 +11,9 @@ namespace Parcial2_Ecommerce.Models
         public int Stock { get; set; }
 
         public int CompanyId { get; set; }
+
+        // Evita ciclo Company -> Products -> Product -> Company -> ...
+        [JsonIgnore]
         public Company? Company { get; set; }
     }
 }
