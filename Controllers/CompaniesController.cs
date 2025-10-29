@@ -18,7 +18,8 @@ namespace Parcial2_Ecommerce.Controllers
         int CurrentUserId(ClaimsPrincipal user)
             => int.Parse(user.Claims.First(c => c.Type == "userId").Value);
 
-        // Público: lista empresas (con productos)
+        // === Públicos para exploración ===
+        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
@@ -28,7 +29,7 @@ namespace Parcial2_Ecommerce.Controllers
             return Ok(companies);
         }
 
-        // Público: empresa por id
+        [AllowAnonymous]
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetById(int id)
         {
@@ -40,7 +41,22 @@ namespace Parcial2_Ecommerce.Controllers
             return Ok(company);
         }
 
-        // Solo Empresa puede crear su empresa
+        // === Implícitos para dueños (rol Empresa) ===
+
+        // Info de mi propia empresa
+        [Authorize(Roles = "Empresa")]
+        [HttpGet("me")]
+        public async Task<IActionResult> MyCompany()
+        {
+            var ownerId = CurrentUserId(User);
+            var company = await _context.Companies
+                .Include(c => c.Products)
+                .FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null) return NotFound("No tienes una empresa registrada.");
+            return Ok(company);
+        }
+
+        // Crear mi empresa (si no tengo una)
         [Authorize(Roles = "Empresa")]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CompanyCreateRequest req)
@@ -49,8 +65,6 @@ namespace Parcial2_Ecommerce.Controllers
                 return BadRequest("El nombre es obligatorio.");
 
             var ownerId = CurrentUserId(User);
-
-            // (Opcional) bloquear que un mismo usuario cree más de una empresa
             var already = await _context.Companies.AnyAsync(c => c.OwnerUserId == ownerId);
             if (already) return BadRequest("Ya tienes una empresa registrada con este usuario.");
 
@@ -58,20 +72,17 @@ namespace Parcial2_Ecommerce.Controllers
             _context.Companies.Add(company);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetById), new { id = company.Id }, company);
+            return CreatedAtAction(nameof(MyCompany), new { }, company);
         }
 
-        // Solo Empresa puede editar su empresa
+        // Actualizar mi empresa (implícita)
         [Authorize(Roles = "Empresa")]
-        [HttpPut("{id:int}")]
-        public async Task<IActionResult> Update(int id, [FromBody] CompanyCreateRequest req)
+        [HttpPut]
+        public async Task<IActionResult> Update([FromBody] CompanyCreateRequest req)
         {
-            var company = await _context.Companies.FindAsync(id);
-            if (company == null) return NotFound();
-
             var ownerId = CurrentUserId(User);
-            if (company.OwnerUserId != ownerId)
-                return Forbid("Solo el dueño puede modificar esta empresa.");
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null) return NotFound("No tienes una empresa registrada.");
 
             if (!string.IsNullOrWhiteSpace(req.Name))
                 company.Name = req.Name;
@@ -80,17 +91,21 @@ namespace Parcial2_Ecommerce.Controllers
             return Ok(company);
         }
 
-        // Solo Empresa puede borrar su empresa
+        // Eliminar mi empresa (implícita)
         [Authorize(Roles = "Empresa")]
-        [HttpDelete("{id:int}")]
-        public async Task<IActionResult> Delete(int id)
+        [HttpDelete]
+        public async Task<IActionResult> Delete()
         {
-            var company = await _context.Companies.FindAsync(id);
-            if (company == null) return NotFound();
-
             var ownerId = CurrentUserId(User);
-            if (company.OwnerUserId != ownerId)
-                return Forbid("Solo el dueño puede eliminar esta empresa.");
+            var company = await _context.Companies
+                .Include(c => c.Products)
+                .FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null) return NotFound("No tienes una empresa registrada.");
+
+            // Evita borrar si quedan productos (o aplicar cascade si lo configuras)
+            var hasProducts = company.Products != null && company.Products.Any();
+            if (hasProducts)
+                return BadRequest("Primero elimina/traspasa los productos de tu empresa.");
 
             _context.Companies.Remove(company);
             await _context.SaveChangesAsync();

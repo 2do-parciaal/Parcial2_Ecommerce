@@ -17,8 +17,9 @@ namespace Parcial2_Ecommerce.Services
         {
             var claims = new[]
             {
-                // Identificador único del usuario
+                // Identificador estándar y claim explícito de userId
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new Claim("userId", user.Id.ToString()),
 
                 // Email y Rol (para autorización)
                 new Claim(ClaimTypes.Email, user.Email),

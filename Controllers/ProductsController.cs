@@ -18,11 +18,13 @@ namespace Parcial2_Ecommerce.Controllers
         int CurrentUserId(ClaimsPrincipal user)
             => int.Parse(user.Claims.First(c => c.Type == "userId").Value);
 
-        // Público: listar/ver
+        // Público
+        [AllowAnonymous]
         [HttpGet]
         public async Task<IActionResult> GetAll()
             => Ok(await _context.Products.Include(p => p.Company).ToListAsync());
 
+        [AllowAnonymous]
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Get(int id)
         {
@@ -30,17 +32,15 @@ namespace Parcial2_Ecommerce.Controllers
             return p is null ? NotFound() : Ok(p);
         }
 
-        // Solo Empresa crea productos de su propia empresa
+        // Empresa: crea en su propia empresa (implícita)
         [Authorize(Roles = "Empresa")]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] ProductCreateRequest req)
         {
-            var company = await _context.Companies.FindAsync(req.CompanyId);
-            if (company == null) return BadRequest("La empresa (companyId) no existe.");
-
             var ownerId = CurrentUserId(User);
-            if (company.OwnerUserId != ownerId)
-                return Forbid("Solo puedes crear productos de tu propia empresa.");
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null)
+                return BadRequest("No tienes una empresa registrada. Crea tu empresa antes de publicar productos.");
 
             var p = new Product
             {
@@ -48,7 +48,7 @@ namespace Parcial2_Ecommerce.Controllers
                 Description = req.Description,
                 Price = req.Price,
                 Stock = req.Stock,
-                CompanyId = req.CompanyId
+                CompanyId = company.Id
             };
 
             _context.Products.Add(p);
@@ -56,7 +56,7 @@ namespace Parcial2_Ecommerce.Controllers
             return CreatedAtAction(nameof(Get), new { id = p.Id }, p);
         }
 
-        // Solo Empresa puede editar/eliminar sus productos
+        // Empresa: modifica solo productos de su empresa (implícito)
         [Authorize(Roles = "Empresa")]
         [HttpPut("{id:int}")]
         public async Task<IActionResult> Update(int id, [FromBody] ProductCreateRequest req)
@@ -64,23 +64,21 @@ namespace Parcial2_Ecommerce.Controllers
             var p = await _context.Products.FindAsync(id);
             if (p == null) return NotFound();
 
-            var company = await _context.Companies.FindAsync(req.CompanyId);
-            if (company == null) return BadRequest("La empresa (companyId) no existe.");
-
             var ownerId = CurrentUserId(User);
-            if (company.OwnerUserId != ownerId || p.CompanyId != company.Id)
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null || p.CompanyId != company.Id)
                 return Forbid("Solo puedes modificar productos de tu empresa.");
 
             p.Name = req.Name;
             p.Description = req.Description;
             p.Price = req.Price;
             p.Stock = req.Stock;
-            p.CompanyId = req.CompanyId;
 
             await _context.SaveChangesAsync();
             return Ok(p);
         }
 
+        // Empresa: elimina solo productos de su empresa (implícito)
         [Authorize(Roles = "Empresa")]
         [HttpDelete("{id:int}")]
         public async Task<IActionResult> Delete(int id)
@@ -88,9 +86,9 @@ namespace Parcial2_Ecommerce.Controllers
             var p = await _context.Products.FindAsync(id);
             if (p == null) return NotFound();
 
-            var company = await _context.Companies.FindAsync(p.CompanyId);
             var ownerId = CurrentUserId(User);
-            if (company == null || company.OwnerUserId != ownerId)
+            var company = await _context.Companies.FirstOrDefaultAsync(c => c.OwnerUserId == ownerId);
+            if (company == null || p.CompanyId != company.Id)
                 return Forbid("Solo puedes eliminar productos de tu empresa.");
 
             _context.Products.Remove(p);
