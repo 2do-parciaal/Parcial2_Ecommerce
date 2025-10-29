@@ -4,6 +4,7 @@ using Parcial2_Ecommerce.Data;
 using Parcial2_Ecommerce.Models;
 using Parcial2_Ecommerce.Models.Auth;
 using Parcial2_Ecommerce.Services;
+using Microsoft.AspNetCore.Identity; // <- PasswordHasher
 
 namespace Parcial2_Ecommerce.Controllers
 {
@@ -35,14 +36,18 @@ namespace Parcial2_Ecommerce.Controllers
             {
                 Name = req.Name,
                 Email = req.Email,
-                Password = req.Password,
+                // Guardaremos el HASH, no el texto plano
+                Password = "", 
                 Role = string.IsNullOrWhiteSpace(req.Role) ? "Cliente" : req.Role
             };
+
+            // Hash de la contraseña
+            var hasher = new PasswordHasher<User>();
+            user.Password = hasher.HashPassword(user, req.Password);
 
             _context.Users.Add(user);
             _context.SaveChanges();
 
-            // Ya NO devolvemos token aquí
             return Ok(new { message = "Usuario registrado correctamente." });
         }
 
@@ -54,8 +59,21 @@ namespace Parcial2_Ecommerce.Controllers
             if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
                 return BadRequest("Email y password son obligatorios.");
 
-            var user = _context.Users.FirstOrDefault(u => u.Email == req.Email && u.Password == req.Password);
+            var user = _context.Users.FirstOrDefault(u => u.Email == req.Email);
             if (user == null) return Unauthorized("Credenciales inválidas.");
+
+            var hasher = new PasswordHasher<User>();
+            var verification = hasher.VerifyHashedPassword(user, user.Password, req.Password);
+
+            if (verification == PasswordVerificationResult.Failed)
+                return Unauthorized("Credenciales inválidas.");
+
+            // (Opcional) Si requiere rehash, actualizamos el hash
+            if (verification == PasswordVerificationResult.SuccessRehashNeeded)
+            {
+                user.Password = hasher.HashPassword(user, req.Password);
+                _context.SaveChanges();
+            }
 
             var token = _tokenService.GenerateToken(user);
             return Ok(new { token, role = user.Role });
